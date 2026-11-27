@@ -1,0 +1,64 @@
+name: Download Kick Video to Filebin
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'لینک ویدیو یا کلیپ Kick'
+        required: true
+        type: string
+      max_resolution:
+        description: 'حداکثر کیفیت (مثلاً 1080 یا 720 - برای بالاترین کیفیت خالی بگذارید)'
+        required: false
+        default: '1080'
+        type: string
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install yt-dlp with Cloudflare bypass
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -U "yt-dlp[default,curl-cffi]"
+
+      - name: Download video from Kick
+        id: download
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+          MAX_RES: ${{ inputs.max_resolution }}
+        run: |
+          mkdir -p downloads
+          if [ -n "$MAX_RES" ]; then
+            FORMAT="bestvideo[height<=${MAX_RES}]+bestaudio/best[height<=${MAX_RES}]/best"
+          else
+            FORMAT="bestvideo+bestaudio/best"
+          fi
+
+          yt-dlp \
+            --impersonate chrome \
+            --restrict-filenames \
+            --merge-output-format mp4 \
+            -f "$FORMAT" \
+            -o "downloads/%(title).80s.%(ext)s" \
+            "$VIDEO_URL"
+
+          FILE_PATH=$(ls downloads/* | head -n 1)
+          FILE_NAME=$(basename "$FILE_PATH")
+          echo "file_path=$FILE_PATH" >> $GITHUB_OUTPUT
+          echo "file_name=$FILE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload to Filebin (parhamkick)
+        env:
+          FILE_PATH: ${{ steps.download.outputs.file_path }}
+          FILE_NAME: ${{ steps.download.outputs.file_name }}
+        run: |
+          curl -f -X POST \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@${FILE_PATH}" \
+            "https://filebin.net/parhamkick/${FILE_NAME}"
+
+          echo "### آپلود انجام شد" >> $GITHUB_STEP_SUMMARY
+          echo "- **نام فایل:** \`${FILE_NAME}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **پوشه Filebin:** https://filebin.net/parhamkick" >> $GITHUB_STEP_SUMMARY
+          echo "- **لینک مستقیم فایل:** https://filebin.net/parhamkick/${FILE_NAME}" >> $GITHUB_STEP_SUMMARY
